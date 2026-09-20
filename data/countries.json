@@ -1,0 +1,32 @@
+{
+  "AR": {
+    "name": "Argentina",
+    "reservas_usd_millones": 29500,
+    "inflacion_anual_pct": 4.2,
+    "poblacion_millones": 46.2
+  },
+  "BR": {
+    "name": "Brasil",
+    "reservas_usd_millones": 355000,
+    "inflacion_anual_pct": 4.5,
+    "poblacion_millones": 216.4
+  },
+  "US": {
+    "name": "Estados Unidos",
+    "reservas_usd_millones": 245000,
+    "inflacion_anual_pct": 2.9,
+    "poblacion_millones": 335.9
+  },
+  "ES": {
+    "name": "España",
+    "reservas_usd_millones": 78000,
+    "inflacion_anual_pct": 2.3,
+    "poblacion_millones": 47.6
+  },
+  "CN": {
+    "name": "China",
+    "reservas_usd_millones": 3230000,
+    "inflacion_anual_pct": 0.6,
+    "poblacion_millones": 1410.7
+  }
+}
