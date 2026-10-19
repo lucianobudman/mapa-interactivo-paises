@@ -79,8 +79,12 @@ function ensureAdvancedPanel() {
     panel.className = "advanced-panel";
     panel.innerHTML = `
       <div class="locked-msg">
-        Elegí un país en el mapa para ver acá los datos avanzados
-        (necesitás tener sesión iniciada).
+        🔒 Esta app tiene datos avanzados (PBI, desempleo, esperanza de
+        vida, alfabetización, gasto en salud, superficie, densidad
+        poblacional) y el histórico de los últimos 10 años de cada dato,
+        disponibles solo para usuarios registrados. Registrate gratis
+        arriba a la derecha para acceder, y después elegí un país en el
+        mapa.
       </div>`;
     const mapPanel = document.querySelector(".map-panel");
     mapPanel.insertAdjacentElement("afterend", panel);
@@ -175,6 +179,102 @@ function renderLoading(name, code) {
   avanzadoPanel.innerHTML = `<div class="no-data-msg">Cargando...</div>`;
 }
 
+// MIDP-30: selector para elegir una "característica" (reservas, inflación
+// o población). Guarda la elegida en window.caracteristicaSeleccionada
+// (el código del indicador, o null si no hay ninguna) y avisa al resto de
+// la página con el evento "caracteristicachange", así las tareas de colorear
+// el mapa (MIDP-11, 12 y 13) pueden engancharse a esta elección.
+// Por ahora resalta ese dato en el panel de cada país.
+function aplicarResaltado() {
+  document.querySelectorAll("#data-panel .stat").forEach((el) => {
+    el.classList.toggle("stat-selected", el.dataset.code === window.caracteristicaSeleccionada);
+  });
+}
+
+function ensureSelector() {
+  if (document.getElementById("caracteristica-select")) return;
+
+  const barra = document.createElement("div");
+  barra.className = "selector-barra";
+  barra.innerHTML = `
+    <label for="caracteristica-select">Característica a destacar:</label>
+    <select id="caracteristica-select" class="selector-select">
+      <option value="">Ninguna</option>
+      ${INDICATORS.map((ind) => `<option value="${ind.code}">${ind.label}</option>`).join("")}
+    </select>
+    <span id="caracteristica-info" class="selector-info"></span>`;
+  document.querySelector(".map-panel").insertAdjacentElement("afterbegin", barra);
+
+  const select = document.getElementById("caracteristica-select");
+  const info = document.getElementById("caracteristica-info");
+  select.addEventListener("change", () => {
+    window.caracteristicaSeleccionada = select.value || null;
+    const ind = INDICATORS.find((i) => i.code === select.value);
+    info.textContent = ind ? `Seleccionada: ${ind.label}` : "";
+    aplicarResaltado();
+    window.dispatchEvent(
+      new CustomEvent("caracteristicachange", { detail: { code: window.caracteristicaSeleccionada } })
+    );
+  });
+}
+
+// MIDP-19: el usuario con sesión iniciada puede bajar el historial en datos
+// crudos (sin formato, tal cual vienen de la API) como un archivo CSV
+// ("CSV", pronunciado "sí-es-ví", significa "valores separados por comas":
+// un archivo de texto que se abre directo en Excel).
+// Usamos ";" como separador y coma decimal porque así lo espera Excel en
+// español, y le agregamos "﻿" al principio para que respete las tildes.
+function descargarHistorialCSV(name, code, historicos, avanzados) {
+  const num = (v) => String(v).replace(".", ",");
+  const filas = [["Pais", "Codigo", "Indicador", "Anio", "Valor"]];
+
+  INDICATORS.forEach((ind, i) => {
+    (historicos[i] || []).forEach((h) => {
+      filas.push([name, code, ind.label, h.anio, num(h.valor)]);
+    });
+  });
+  ADVANCED_INDICATORS.forEach((ind, i) => {
+    const r = avanzados[i];
+    if (r) filas.push([name, code, ind.label, r.anio, num(r.valor)]);
+  });
+
+  const csv = filas
+    .map((fila) => fila.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";"))
+    .join("\r\n");
+
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = `historial_${code}.csv`;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  URL.revokeObjectURL(url);
+}
+
+// MIDP-24: el usuario premium le manda directamente a los creadores la
+// sugerencia de un dato nuevo. Abre el programa de mail del usuario con
+// el mensaje ya escrito ("mailto:", pronunciado "méilto", significa
+// "mail para": un enlace que arma un mail listo para enviar).
+function enviarSugerencia(texto) {
+  const mensaje = texto.trim();
+  if (!mensaje) {
+    alert("Escribí primero qué dato nuevo querés sugerir.");
+    return;
+  }
+  const asunto = "Sugerencia de dato nuevo - Mapa Interactivo de Países";
+  // El mail con el que el usuario se registró (lo guarda Firebase). Lo
+  // ponemos en el cuerpo para que los creadores sepan quién escribe y
+  // puedan responderle, y en "cc" (copia) para que el usuario también
+  // reciba una copia en su propio mail.
+  const emailUsuario = auth.currentUser ? auth.currentUser.email : "";
+  const cuerpo = `${mensaje}\n\nUsuario premium: ${emailUsuario}`;
+  window.location.href =
+    `mailto:${ADMIN_EMAIL}?cc=${encodeURIComponent(emailUsuario)}` +
+    `&subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+}
+
 // resultados: los 3 datos básicos (array paralelo a INDICATORS)
 // historicos: null si no hay sesión iniciada, o array paralelo a
 //   INDICATORS con la serie de hasta 10 años de cada uno
@@ -200,7 +300,7 @@ function renderCountry(name, code, resultados, historicos, avanzados) {
         : "";
 
     return `
-      <div class="stat">
+      <div class="stat" data-code="${ind.code}">
         <div class="stat-label">${ind.label}</div>
         <div class="stat-value">${valorMostrado}</div>
         ${historialHtml}
@@ -212,6 +312,7 @@ function renderCountry(name, code, resultados, historicos, avanzados) {
     <h2 class="country-name">${name}</h2>
     <div class="stat-list">${stats}</div>
   `;
+  aplicarResaltado();
 
   // MIDP-21/22: los datos avanzados van en el panel de la izquierda,
   // debajo del mapa (no acá, en el panel de la derecha).
@@ -227,15 +328,43 @@ function renderCountry(name, code, resultados, historicos, avanzados) {
           <div class="stat-value">${valorMostrado}</div>
         </div>`;
     }).join("");
+    // MIDP-19 y MIDP-24: hay dos tipos de usuario con sesión iniciada.
+    // El "registrado" ve los datos avanzados; el "premium" (su email está
+    // en PREMIUM_EMAILS, en auth.js) además puede bajar el historial en
+    // CSV y mandarles a los creadores la sugerencia de un dato nuevo.
+    const esPremium = window.usuarioPremium;
+    const premiumHtml = esPremium
+      ? `<button id="download-btn" class="retry-btn">⬇ Descargar historial (CSV)</button>
+         <p class="section-label">Sugerir un dato nuevo a los creadores</p>
+         <textarea id="suggest-text" rows="3"
+           placeholder="Contanos qué dato te gustaría ver en el mapa..."
+           style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--panel-border);color:var(--text);font-family:var(--body);font-size:13px;padding:8px;border-radius:4px;resize:vertical;"></textarea>
+         <button id="suggest-btn" class="retry-btn">✉ Enviar sugerencia</button>`
+      : `<div class="locked-msg">
+           ⭐ Descargar el historial en CSV y sugerir datos nuevos a los
+           creadores son funciones solo para usuarios premium.
+         </div>`;
+
     avanzadoPanel.innerHTML = `
-      <p class="section-label">Datos avanzados de ${name} (usuario registrado)</p>
-      <div class="stat-list">${avanzadosHtml}</div>`;
+      <p class="section-label">Datos avanzados de ${name} (usuario ${esPremium ? "premium" : "registrado"})</p>
+      <div class="stat-list">${avanzadosHtml}</div>
+      ${premiumHtml}`;
+
+    if (esPremium) {
+      document.getElementById("download-btn").addEventListener("click", () => {
+        descargarHistorialCSV(name, code, historicos, avanzados);
+      });
+      document.getElementById("suggest-btn").addEventListener("click", () => {
+        enviarSugerencia(document.getElementById("suggest-text").value);
+      });
+    }
   } else {
     avanzadoPanel.innerHTML = `
       <div class="locked-msg">
-        Iniciá sesión para ver PBI total, desempleo, esperanza de vida,
-        alfabetización, gasto en salud, superficie, densidad poblacional
-        y el histórico de los últimos 10 años de cada dato.
+        🔒 Iniciá sesión (o registrate gratis arriba a la derecha) para
+        ver PBI total, desempleo, esperanza de vida, alfabetización,
+        gasto en salud, superficie, densidad poblacional y el histórico
+        de los últimos 10 años de cada dato.
       </div>`;
   }
 }
@@ -339,6 +468,7 @@ function wireMapEvents() {
     path.addEventListener("click", onCountryClick);
   });
   ensureAdvancedPanel();
+  ensureSelector();
 }
 
 document.addEventListener("DOMContentLoaded", wireMapEvents);

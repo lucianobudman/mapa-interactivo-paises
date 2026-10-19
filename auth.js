@@ -1,4 +1,18 @@
+// auth.js — HU21/HU22: login real con Firebase Authentication
+// (email + contraseña). Necesita que firebase-config.js ya haya
+// cargado ANTES que este archivo, con tus datos reales de tu
+// proyecto de Firebase (ver README, sección Firebase).
+
 const auth = firebase.auth();
+
+// MIDP-19 / MIDP-24: dos tipos de usuario con sesión iniciada.
+// - Registrado: cualquiera que se registre (ve los datos avanzados).
+// - Premium: los emails de esta lista (además puede descargar el historial
+//   en CSV y sugerir datos nuevos a los creadores).
+// COMPLETÁ ESTAS DOS LÍNEAS con los emails reales (en minúsculas):
+const PREMIUM_EMAILS = ["albatatianaperalta2013@gmail.com"];
+// Mail del administrador de la página, a donde llegan las sugerencias:
+const ADMIN_EMAIL = "admin@ejemplo.com";
 
 function mostrarLogueado(email) {
   document.getElementById("auth-logged-out").classList.add("hidden");
@@ -23,6 +37,8 @@ function limpiarErrorAuth() {
   el.classList.add("hidden");
 }
 
+// Traduce los códigos de error de Firebase (vienen en inglés, tipo
+// "auth/wrong-password") a un mensaje entendible en español.
 function traducirErrorFirebase(err) {
   const mensajes = {
     "auth/email-already-in-use": "Ese email ya está registrado. Iniciá sesión en vez de registrarte.",
@@ -36,13 +52,21 @@ function traducirErrorFirebase(err) {
   return mensajes[err.code] || `Ocurrió un error: ${err.message}`;
 }
 
+// onAuthStateChanged (pronunciado "on óz estéit chéinchd", significa
+// "cuando cambia el estado de autenticación"): Firebase llama esta
+// función sola, automáticamente, cada vez que alguien inicia o cierra
+// sesión, y también al recargar la página si ya había una sesión activa
+// (Firebase la recuerda sola, no hace falta guardar nada a mano).
 auth.onAuthStateChanged((user) => {
   window.usuarioLogueado = !!user;
+  window.usuarioPremium = !!user && PREMIUM_EMAILS.includes(user.email.toLowerCase());
   if (user) {
     mostrarLogueado(user.email);
   } else {
     mostrarDeslogueado();
   }
+  // Avisamos al resto de la página (script.js) que el login cambió,
+  // para que pueda mostrar/ocultar los datos avanzados.
   window.dispatchEvent(new CustomEvent("authchange"));
 });
 
